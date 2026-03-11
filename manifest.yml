@@ -1,0 +1,133 @@
+modules:
+  # ── Issue Panel ──────────────────────────────────────────────
+  # Shows CVE vulnerability data directly inside a Jira issue.
+  jira:issuePanel:
+    - key: cvefeed-issue-panel
+      title: CVEFeed.io Vulnerabilities
+      icon: resource:cvefeed-icon;icon.svg
+      resource: issue-panel-resource
+      resolver:
+        function: issue-panel-resolver
+      description: View CVE vulnerabilities related to this issue.
+
+  # ── Issue Glance (Context) ──────────────────────────────────
+  # Compact severity badge shown in the issue sidebar.
+  jira:issueGlance:
+    - key: cvefeed-issue-glance
+      title: CVEFeed.io
+      label: Vulnerabilities
+      icon: resource:cvefeed-icon;icon.svg
+      resource: issue-panel-resource
+      resolver:
+        function: issue-glance-resolver
+      description: Vulnerability severity summary.
+      target: issue-panel
+
+  # ── Dashboard Gadget ────────────────────────────────────────
+  # Project-wide vulnerability summary widget for Jira dashboards.
+  jira:dashboardGadget:
+    - key: cvefeed-dashboard-gadget
+      title: CVEFeed.io Dashboard
+      description: Vulnerability intelligence dashboard powered by CVEFeed.io.
+      thumbnail: resource:cvefeed-icon;icon.svg
+      resource: dash-gadget-resource
+      resolver:
+        function: dashboard-resolver
+      edit:
+        resource: dash-gadget-resource
+        resolver:
+          function: dashboard-edit-resolver
+
+  # ── Admin / Global Page ─────────────────────────────────────
+  # Full-page configuration for connecting CVEFeed.io to this Jira site.
+  jira:adminPage:
+    - key: cvefeed-admin-page
+      title: CVEFeed.io Configuration
+      icon: resource:cvefeed-icon;icon.svg
+      resource: admin-page-resource
+      resolver:
+        function: admin-resolver
+
+  # ── Global Page ─────────────────────────────────────────────
+  # Full-page vulnerability browser accessible from the Apps menu.
+  jira:globalPage:
+    - key: cvefeed-global-page
+      title: CVEFeed.io Vulnerability Browser
+      icon: resource:cvefeed-icon;icon.svg
+      resource: admin-page-resource
+      resolver:
+        function: global-page-resolver
+      route: cvefeed-vulnerabilities
+
+  # ── Webhook Trigger ─────────────────────────────────────────
+  # Receives real-time vulnerability alerts from CVEFeed.io backend.
+  trigger:
+    - key: cvefeed-webhook-trigger
+      function: webhook-trigger-handler
+      events:
+        - avi:forge:upgraded:app
+
+  # ── Scheduled Trigger ───────────────────────────────────────
+  # Periodically syncs vulnerability data from CVEFeed.io.
+  scheduledTrigger:
+    - key: cvefeed-sync-trigger
+      function: scheduled-sync-handler
+      interval: hour
+
+  # ── Web Trigger (incoming webhook) ──────────────────────────
+  # Public endpoint for CVEFeed.io backend to push alerts in real-time.
+  webtrigger:
+    - key: cvefeed-incoming-webhook
+      function: incoming-webhook
+
+  # ── Functions ───────────────────────────────────────────────
+  function:
+    - key: issue-panel-resolver
+      handler: index.issuePanelResolver
+    - key: issue-glance-resolver
+      handler: index.issueGlanceResolver
+    - key: dashboard-resolver
+      handler: index.dashboardResolver
+    - key: dashboard-edit-resolver
+      handler: index.dashboardEditResolver
+    - key: admin-resolver
+      handler: index.adminResolver
+    - key: global-page-resolver
+      handler: index.globalPageResolver
+    - key: webhook-trigger-handler
+      handler: index.webhookTriggerHandler
+    - key: scheduled-sync-handler
+      handler: index.scheduledSyncHandler
+    - key: incoming-webhook
+      handler: index.incomingWebhookHandler
+
+resources:
+  - key: issue-panel-resource
+    path: static/issue-panel/build
+  - key: dash-gadget-resource
+    path: static/dashboard-gadget/build
+  - key: admin-page-resource
+    path: static/admin-page/build
+  - key: cvefeed-icon
+    path: resources/images
+
+# ── External Permissions ────────────────────────────────────
+# Allow the Forge backend to call the CVEFeed.io API.
+permissions:
+  scopes:
+    - storage:app
+    - read:jira-work
+    - write:jira-work
+    - read:jira-user
+  external:
+    fetch:
+      backend:
+        - https://cvefeed.io
+        - https://api.cvefeed.io
+
+app:
+  runtime:
+    name: nodejs22.x
+  id: ari:cloud:ecosystem::app/5afbe768-29f8-41ad-b4cb-5d61ad2179cb
+  description: Vulnerability intelligence for Jira. Monitor your software stack,
+    receive real-time CVE alerts, and track remediation — all inside Jira.

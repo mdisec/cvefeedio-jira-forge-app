@@ -1,0 +1,7 @@
+node_modules/
+static/*/build/
+static/*/node_modules/
+.env
+*.log
+dist/
+.forge/

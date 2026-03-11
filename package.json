@@ -1,0 +1,28 @@
+{
+  "name": "cvefeed-jira-forge",
+  "version": "1.0.0",
+  "description": "CVEFeed.io Forge app for Jira — vulnerability intelligence inside Jira",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": {
+    "lint": "eslint src/",
+    "build:issue-panel": "cd static/issue-panel && npm run build",
+    "build:dashboard-gadget": "cd static/dashboard-gadget && npm run build",
+    "build:admin-page": "cd static/admin-page && npm run build",
+    "build:all": "npm run build:issue-panel && npm run build:dashboard-gadget && npm run build:admin-page",
+    "deploy": "npm run build:all && forge deploy",
+    "install": "forge install",
+    "start": "forge tunnel"
+  },
+  "dependencies": {
+    "@forge/api": "^4.0.0",
+    "@forge/resolver": "^1.6.0",
+    "@forge/bridge": "^3.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

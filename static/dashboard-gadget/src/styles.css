@@ -1,0 +1,331 @@
+/* ── CVEFeed.io Dashboard Gadget Styles ──────────────── */
+
+:root {
+  --cf-primary: var(--ds-link, #1a73e8);
+  --cf-critical: var(--ds-text-danger, #d32f2f);
+  --cf-high: var(--ds-text-warning, #e65100);
+  --cf-medium: var(--ds-text-warning, #f9a825);
+  --cf-low: var(--ds-text-success, #2e7d32);
+  --cf-bg: var(--ds-surface, #ffffff);
+  --cf-surface: var(--ds-surface-raised, #f8f9fa);
+  --cf-border: var(--ds-border, #e0e0e0);
+  --cf-text: var(--ds-text, #1f2937);
+  --cf-text-secondary: var(--ds-text-subtle, #6b7280);
+  --cf-radius: 6px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, sans-serif;
+  font-size: 13px;
+  color: var(--cf-text);
+  background: var(--cf-bg);
+}
+
+.gadget {
+  padding: 16px;
+}
+
+/* ── Header ── */
+.gadget-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--cf-border);
+}
+
+.gadget-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.project-name {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+/* ── Severity Grid ── */
+.severity-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.severity-card {
+  text-align: center;
+  padding: 10px 6px;
+  border-radius: var(--cf-radius);
+  border: 1px solid;
+}
+
+.severity-card.critical {
+  background: var(--ds-background-danger, #ffebee);
+  border-color: var(--ds-border-danger, #ef9a9a);
+}
+
+.severity-card.high {
+  background: var(--ds-background-warning, #fff3e0);
+  border-color: var(--ds-border-warning, #ffcc80);
+}
+
+.severity-card.medium {
+  background: var(--ds-background-warning, #fffde7);
+  border-color: var(--ds-border-warning, #fff176);
+}
+
+.severity-card.low {
+  background: var(--ds-background-success, #e8f5e9);
+  border-color: var(--ds-border-success, #a5d6a7);
+}
+
+.sev-count {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.severity-card.critical .sev-count { color: var(--cf-critical); }
+.severity-card.high .sev-count { color: var(--cf-high); }
+.severity-card.medium .sev-count { color: var(--cf-medium); }
+.severity-card.low .sev-count { color: var(--cf-low); }
+
+.sev-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--cf-text-secondary);
+}
+
+/* ── Usage Bar ── */
+.usage-bar-container {
+  margin-bottom: 16px;
+}
+
+.usage-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: 4px;
+  color: var(--cf-text-secondary);
+}
+
+.usage-bar {
+  height: 6px;
+  background: var(--ds-background-neutral, var(--cf-surface));
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--cf-border);
+}
+
+.usage-fill {
+  height: 100%;
+  background: var(--ds-background-brand-bold, var(--cf-primary));
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+/* ── Alerts ── */
+.alerts-section {
+  margin-bottom: 16px;
+}
+
+.alerts-section h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.alert-count {
+  font-weight: 400;
+  color: var(--cf-text-secondary);
+  font-size: 12px;
+}
+
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alert-item {
+  padding: 8px 10px;
+  border: 1px solid var(--cf-border);
+  border-radius: var(--cf-radius);
+  background: var(--cf-bg);
+}
+
+.alert-item.unread {
+  border-left: 3px solid var(--cf-primary);
+  background: var(--ds-background-selected, #f0f4ff);
+}
+
+.alert-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.alert-cve {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--cf-primary);
+  text-decoration: none;
+}
+
+.alert-cve:hover {
+  text-decoration: underline;
+}
+
+.sev-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.sev-tag.critical { background: var(--ds-background-danger, #ffebee); color: var(--cf-critical); }
+.sev-tag.high { background: var(--ds-background-warning, #fff3e0); color: var(--cf-high); }
+.sev-tag.medium { background: var(--ds-background-warning, #fffde7); color: var(--cf-medium); }
+.sev-tag.low { background: var(--ds-background-success, #e8f5e9); color: var(--cf-low); }
+
+.alert-product {
+  font-size: 11px;
+  color: var(--cf-text);
+  margin-bottom: 4px;
+}
+
+.alert-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--cf-text-secondary);
+  align-items: center;
+}
+
+.btn-mark-read {
+  background: none;
+  border: none;
+  color: var(--cf-primary);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.btn-mark-read:hover {
+  text-decoration: underline;
+}
+
+.no-alerts {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+  text-align: center;
+  padding: 10px;
+}
+
+/* ── Subscriptions ── */
+.subs-section {
+  margin-bottom: 16px;
+}
+
+.subs-section h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.subs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sub-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--ds-background-neutral, var(--cf-surface));
+  border: 1px solid var(--cf-border);
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+.sub-cve-count {
+  font-size: 10px;
+  color: var(--cf-text-secondary);
+}
+
+.sub-chip.more {
+  color: var(--cf-text-secondary);
+  font-style: italic;
+}
+
+/* ── Footer ── */
+.gadget-footer {
+  text-align: center;
+  padding-top: 10px;
+  border-top: 1px solid var(--cf-border);
+}
+
+.gadget-footer a {
+  font-size: 11px;
+  color: var(--cf-text-secondary);
+  text-decoration: none;
+}
+
+.gadget-footer a:hover {
+  color: var(--cf-primary);
+}
+
+/* ── States ── */
+.loading {
+  text-align: center;
+  padding: 30px;
+  color: var(--cf-text-secondary);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 30px;
+}
+
+.empty-state h3 {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.empty-state p {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.error {
+  text-align: center;
+  padding: 10px;
+  color: var(--cf-critical);
+  font-size: 12px;
+}
+
+.btn-retry {
+  display: block;
+  margin: 8px auto;
+  padding: 6px 14px;
+  background: var(--ds-background-brand-bold, var(--cf-primary));
+  color: var(--ds-text-inverse, #fff);
+  border: none;
+  border-radius: var(--cf-radius);
+  font-size: 12px;
+  cursor: pointer;
+}

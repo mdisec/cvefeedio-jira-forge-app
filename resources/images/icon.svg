@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a73e8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0d47a1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="8" fill="url(#bg)"/>
+  <g transform="translate(8, 6)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Shield -->
+    <path d="M16 2 L28 7 V18 C28 26 22 31 16 34 C10 31 4 26 4 18 V7 Z" fill="rgba(255,255,255,0.15)"/>
+    <!-- Bug/vulnerability icon inside shield -->
+    <circle cx="16" cy="16" r="5" fill="none"/>
+    <line x1="16" y1="11" x2="16" y2="21"/>
+    <line x1="11" y1="16" x2="21" y2="16"/>
+    <line x1="12.5" y1="12.5" x2="19.5" y2="19.5"/>
+    <line x1="19.5" y1="12.5" x2="12.5" y2="19.5"/>
+  </g>
+</svg>
