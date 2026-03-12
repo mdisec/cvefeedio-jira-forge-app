@@ -107,3 +107,4 @@ Authentication uses `Bearer` token in the `Authorization` header.
 2. Deploy to production: `forge deploy -e production`
 3. Submit via [Atlassian Marketplace](https://developer.atlassian.com/platform/marketplace/)
 4. Required: privacy policy, support URL, app description, screenshots
+de

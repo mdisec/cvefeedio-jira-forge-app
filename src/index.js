@@ -7,8 +7,9 @@
  * the return value.
  */
 
+import crypto from "crypto";
 import Resolver from "@forge/resolver";
-import { fetch, route, asUser, asApp, requestJira, webTrigger } from "@forge/api";
+import { route, asUser, asApp, webTrigger } from "@forge/api";
 import {
   searchVulnerabilities,
   advancedSearchVulnerabilities,
@@ -21,10 +22,12 @@ import {
   searchProducts,
   getProjectDetails,
   validateApiToken,
+  checkTokenPermissions,
   extractCveIds,
   extractKeywords,
   registerWebhook,
   deregisterWebhook,
+  syncIssueConfig,
   CveFeedApiError,
 } from "./api";
 import {
@@ -46,6 +49,17 @@ import {
 const resolver = new Resolver();
 
 // ═══════════════════════════════════════════════════════════════
+// LICENSE CHECK
+// ═══════════════════════════════════════════════════════════════
+
+function checkLicense(context) {
+  const license = context?.license;
+  if (!license) return { active: false, reason: "no_license" };
+  if (license.isActive) return { active: true };
+  return { active: false, reason: license.billingPeriod ? "expired" : "inactive" };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ISSUE PANEL RESOLVERS
 // ═══════════════════════════════════════════════════════════════
 
@@ -54,6 +68,11 @@ const resolver = new Resolver();
  * Extracts CVE IDs from the issue and fetches details from CVEFeed.io.
  */
 resolver.define("getIssueVulnerabilities", async ({ payload, context }) => {
+  const license = checkLicense(context);
+  if (!license.active) {
+    return { licensed: false, reason: license.reason, configured: false, vulnerabilities: [], cveIds: [] };
+  }
+
   const configured = await isConfigured();
   if (!configured) {
     return { configured: false, vulnerabilities: [], cveIds: [] };
@@ -168,6 +187,11 @@ resolver.define("getVulnerabilityHistory", async ({ payload }) => {
 // ═══════════════════════════════════════════════════════════════
 
 resolver.define("getGlanceData", async ({ payload, context }) => {
+  const license = checkLicense(context);
+  if (!license.active) {
+    return { label: "Unlicensed", status: "inactive" };
+  }
+
   const configured = await isConfigured();
   if (!configured) {
     return { label: "Not configured", status: "inactive" };
@@ -216,7 +240,12 @@ resolver.define("getGlanceData", async ({ payload, context }) => {
 /**
  * Get dashboard data — recent alerts and vulnerability summary.
  */
-resolver.define("getDashboardData", async ({ payload }) => {
+resolver.define("getDashboardData", async ({ payload, context }) => {
+  const license = checkLicense(context);
+  if (!license.active) {
+    return { licensed: false, reason: license.reason, configured: false };
+  }
+
   const configured = await isConfigured();
   if (!configured) {
     return { configured: false };
@@ -293,10 +322,11 @@ resolver.define("markAlertRead", async ({ payload }) => {
 /**
  * Get current configuration status.
  */
-resolver.define("getAdminConfig", async () => {
+resolver.define("getAdminConfig", async ({ context }) => {
+  const license = checkLicense(context);
   const config = await getConfig();
   if (!config) {
-    return { configured: false };
+    return { configured: false, license };
   }
   return {
     configured: true,
@@ -304,8 +334,8 @@ resolver.define("getAdminConfig", async () => {
     projectName: config.projectName,
     configuredAt: config.configuredAt,
     configuredBy: config.configuredBy,
-    // Never return the actual token
     tokenConfigured: !!config.apiToken,
+    license,
   };
 });
 
@@ -328,6 +358,26 @@ resolver.define("saveAdminConfig", async ({ payload, context }) => {
     };
   }
 
+  // Check token scopes before proceeding
+  try {
+    const permissions = await checkTokenPermissions(apiToken, projectId);
+    if (!permissions.sufficient) {
+      const missingList = Object.entries(permissions.missing)
+        .map(([resource, info]) => `${resource}: needs '${info.required}', has '${info.current}'`)
+        .join("; ");
+      return {
+        success: false,
+        error: `Insufficient API token permissions. Missing scopes: ${missingList}. Please create a new API token with the required scopes on CVEFeed.io.`,
+        permissionDetails: permissions,
+      };
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: `Permission check failed: ${err.message}. Ensure your API token has 'write' access to 'integrations'.`,
+    };
+  }
+
   // Store the configuration
   const config = await saveConfig({
     apiToken,
@@ -344,14 +394,11 @@ resolver.define("saveAdminConfig", async ({ payload, context }) => {
   let webhookRegistered = false;
   try {
     const webhookUrl = await webTrigger.getUrl("cvefeed-incoming-webhook");
-    console.log(`Registering webhook URL: ${webhookUrl}`);
     const webhookResult = await registerWebhook(apiToken, projectId, webhookUrl);
-    // Store signing secret persistently for payload verification
     if (webhookResult.signing_secret) {
       await saveWebhookSecret(webhookResult.signing_secret);
     }
     webhookRegistered = true;
-    console.log(`Webhook registered successfully (created: ${webhookResult.created})`);
   } catch (err) {
     console.error("Webhook registration failed:", err.message);
     // Don't fail the config save — webhook can be retried
@@ -374,7 +421,6 @@ resolver.define("deleteAdminConfig", async () => {
   if (config) {
     try {
       await deregisterWebhook(config.projectId);
-      console.log("Webhook deregistered from CVEFeed.io");
     } catch (err) {
       console.error("Webhook deregistration failed:", err.message);
     }
@@ -423,54 +469,40 @@ const SEVERITY_PRIORITY_MAP = {
  * Uses the Forge-provided Jira REST API (no separate OAuth needed).
  */
 resolver.define("getJiraProjects", async () => {
-  try {
-    console.log("Fetching Jira projects via project/search...");
-    const response = await asUser().requestJira(
-      route`/rest/api/3/project/search?maxResults=${100}&orderBy=${"name"}&status=${"live"}`
-    );
-    console.log("Jira projects response status:", response.status);
-
-    if (!response.ok) {
-      // Fallback to /rest/api/3/project (older Jira instances)
-      console.log("project/search failed, falling back to /rest/api/3/project...");
-      const fallback = await asUser().requestJira(route`/rest/api/3/project`);
-      if (!fallback.ok) {
-        const body = await fallback.text().catch(() => "");
-        return { success: false, error: `Jira API error: ${fallback.status} — ${body}` };
-      }
-      const data = await fallback.json();
-      const projects = (Array.isArray(data) ? data : []).map((p) => ({
-        id: p.id,
-        key: p.key,
-        name: p.name,
-      }));
-      console.log("Fallback projects count:", projects.length);
-      return { success: true, projects };
-    }
-
-    const data = await response.json();
-    const projects = (data.values || []).map((p) => ({
+  function toProjectList(items) {
+    return (Array.isArray(items) ? items : []).map((p) => ({
       id: p.id,
       key: p.key,
       name: p.name,
     }));
-    console.log("Projects found:", projects.length);
+  }
+
+  async function fetchFallbackProjects() {
+    const fallback = await asUser().requestJira(route`/rest/api/3/project`);
+    if (!fallback.ok) {
+      const body = await fallback.text().catch(() => "");
+      return { success: false, error: `Jira API error: ${fallback.status} — ${body}` };
+    }
+    const data = await fallback.json();
+    return { success: true, projects: toProjectList(data) };
+  }
+
+  try {
+    const response = await asUser().requestJira(
+      route`/rest/api/3/project/search?maxResults=${100}&orderBy=${"name"}&status=${"live"}`
+    );
+
+    if (!response.ok) {
+      return fetchFallbackProjects();
+    }
+
+    const data = await response.json();
+    const projects = toProjectList(data.values || []);
 
     if (projects.length === 0) {
-      // Try the simpler endpoint as well
-      console.log("project/search returned 0, trying /rest/api/3/project...");
-      const fallback = await asUser().requestJira(route`/rest/api/3/project`);
-      if (fallback.ok) {
-        const fbData = await fallback.json();
-        const fbProjects = (Array.isArray(fbData) ? fbData : []).map((p) => ({
-          id: p.id,
-          key: p.key,
-          name: p.name,
-        }));
-        console.log("Fallback projects count:", fbProjects.length);
-        if (fbProjects.length > 0) {
-          return { success: true, projects: fbProjects };
-        }
+      const fallbackResult = await fetchFallbackProjects();
+      if (fallbackResult.success && fallbackResult.projects.length > 0) {
+        return fallbackResult;
       }
     }
 
@@ -487,18 +519,14 @@ resolver.define("getJiraProjects", async () => {
 resolver.define("getJiraIssueTypes", async ({ payload }) => {
   const { projectKey } = payload;
   try {
-    console.log("Fetching issue types for project:", projectKey);
     const response = await asUser().requestJira(
       route`/rest/api/3/issue/createmeta/${projectKey}/issuetypes`
     );
-    console.log("Issue types response status:", response.status);
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      console.error("Issue types error body:", body);
       return { success: false, error: `Jira API error: ${response.status} — ${body}` };
     }
     const data = await response.json();
-    console.log("Issue types data keys:", Object.keys(data));
     const issueTypes = (data.issueTypes || data.values || [])
       .filter((t) => !t.subtask)
       .map((t) => ({
@@ -557,7 +585,24 @@ resolver.define("saveIssueConfig", async ({ payload }) => {
     priorityMapping: priorityMapping || SEVERITY_PRIORITY_MAP,
   });
 
-  return { success: true, config };
+  // Sync settings to Django for display on the integrations page
+  let synced = false;
+  try {
+    const cvefeedConfig = await getConfig();
+    if (cvefeedConfig && cvefeedConfig.projectId) {
+      await syncIssueConfig(cvefeedConfig.projectId, {
+        jiraProjectKey,
+        issueTypeId,
+        labels: labels || [],
+        autoCreateIssues: autoCreateIssues ?? false,
+      });
+      synced = true;
+    }
+  } catch (err) {
+    console.error("Config sync to CVEFeed.io failed:", err.message);
+  }
+
+  return { success: true, config, synced };
 });
 
 /**
@@ -714,8 +759,13 @@ export async function incomingWebhookHandler(request) {
   // Verify signing secret to ensure request is from CVEFeed.io
   const signingSecret = await getWebhookSecret();
   if (signingSecret) {
-    const headerSecret = request.headers?.["x-webhook-secret"] || request.headers?.["X-Webhook-Secret"];
-    if (!headerSecret || headerSecret !== signingSecret) {
+    let headerSecret = request.headers?.["x-webhook-secret"];
+    if (Array.isArray(headerSecret)) {
+      headerSecret = headerSecret[0];
+    }
+    const secretBuf = Buffer.from(signingSecret, "utf8");
+    const headerBuf = Buffer.from(headerSecret || "", "utf8");
+    if (secretBuf.length !== headerBuf.length || !crypto.timingSafeEqual(secretBuf, headerBuf)) {
       console.warn("Webhook signature verification failed");
       return {
         statusCode: 403,
@@ -734,40 +784,33 @@ export async function incomingWebhookHandler(request) {
     };
   }
 
-  const alert = payload;
-  if (!alert.vulnerability?.id) {
+  if (!payload.vulnerability?.id) {
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Invalid payload: missing vulnerability.id" }),
     };
   }
 
-  const cveId = alert.vulnerability.id;
-  const productName = alert.affected_products?.name || "Unknown Product";
-  const vendorName = alert.affected_products?.vendor?.name || "";
-  console.log(`Received CVEFeed alert: ${cveId} for ${productName}`);
+  const cveId = payload.vulnerability.id;
 
   // Cache the alert
   const cacheKey = `alert:${cveId}`;
-  await setCached(cacheKey, alert);
+  await setCached(cacheKey, payload);
 
   // Auto-create Jira issue if enabled
   let issueCreated = null;
   const issueConfig = await getIssueConfig();
   if (issueConfig && issueConfig.autoCreateIssues && issueConfig.jiraProjectKey && issueConfig.issueTypeId) {
     try {
-      // Check for duplicate — look for existing issue with same CVE ID
       const duplicate = await findExistingIssue(cveId, issueConfig.jiraProjectKey);
       if (duplicate) {
-        console.log(`Skipping issue creation — ${cveId} already exists as ${duplicate}`);
         issueCreated = { skipped: true, existingKey: duplicate };
       } else {
-        const result = await createJiraIssueFromAlert(alert, issueConfig);
+        const result = await createJiraIssueFromAlert(payload, issueConfig);
         issueCreated = result;
-        console.log(`Created Jira issue ${result.issueKey} for ${cveId}`);
       }
     } catch (err) {
-      console.error(`Failed to create Jira issue for ${cveId}:`, err.message);
+      console.error("Failed to create Jira issue:", err.message);
       issueCreated = { error: err.message };
     }
   }
@@ -950,7 +993,6 @@ async function runSync(projectId) {
 
   // Fetch recent alerts (single page) — Forge storage has a 256 KB per-key limit,
   // so we only cache what the dashboard actually needs instead of all pages.
-  console.log(`Syncing recent alerts for project ${projectId}...`);
   const alertsResponse = await getProjectAlerts(projectId, {
     page_size: 50,
     order_by: "-created_at",
@@ -965,11 +1007,6 @@ async function runSync(projectId) {
   await setCached("subscriptions", subscriptions);
 
   const subCount = (subscriptions.results || subscriptions || []).length;
-
-  console.log(
-    `Sync complete for project ${projectId}: ` +
-      `${recentAlerts.length} recent alerts, ${subCount} subscriptions cached.`
-  );
 
   return {
     alertCount: alertsResponse.count || recentAlerts.length,
@@ -998,7 +1035,7 @@ export async function scheduledSyncHandler() {
 // ═══════════════════════════════════════════════════════════════
 
 export async function webhookTriggerHandler(event) {
-  console.log("App lifecycle event:", event);
+  // App lifecycle event handler (install/upgrade)
 }
 
 // ═══════════════════════════════════════════════════════════════

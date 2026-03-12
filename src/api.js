@@ -24,27 +24,30 @@ class CveFeedApiError extends Error {
   }
 }
 
-async function getApiHeaders() {
-  const config = await getConfig();
-  if (!config || !config.apiToken) {
-    throw new CveFeedApiError("CVEFeed.io API token not configured.", 401);
-  }
+function buildBearerHeaders(token) {
   return {
-    Authorization: `Bearer ${config.apiToken}`,
+    Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
     Accept: "application/json",
     "User-Agent": "CVEFeed-Forge/1.0",
   };
 }
 
+async function getApiHeaders() {
+  const config = await getConfig();
+  if (!config || !config.apiToken) {
+    throw new CveFeedApiError("CVEFeed.io API token not configured.", 401);
+  }
+  return buildBearerHeaders(config.apiToken);
+}
+
 function buildUrl(path, params = {}) {
-  const config_url = CVEFEED_BASE_URL;
-  const url = new URL(`${API_PREFIX}${path}`, config_url);
-  Object.entries(params).forEach(([key, value]) => {
+  const url = new URL(`${API_PREFIX}${path}`, CVEFEED_BASE_URL);
+  for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== "") {
       url.searchParams.set(key, String(value));
     }
-  });
+  }
   return url.toString();
 }
 
@@ -197,12 +200,7 @@ export async function getProjectDetails(projectId) {
  */
 export async function validateApiToken(apiToken, projectId) {
   try {
-    const headers = {
-      Authorization: `Bearer ${apiToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "User-Agent": "CVEFeed-Forge/1.0",
-    };
+    const headers = buildBearerHeaders(apiToken);
     const url = buildUrl(`/projects/${projectId}/`);
     const response = await fetch(url, { method: "GET", headers });
 
@@ -260,21 +258,36 @@ export function extractKeywords(issue) {
 }
 
 /**
+ * Check if the API token has sufficient scopes for Jira Forge integration.
+ * Returns { sufficient, token_scopes, required_scopes, missing }.
+ */
+export async function checkTokenPermissions(apiToken, projectId) {
+  const headers = buildBearerHeaders(apiToken);
+  const url = buildUrl(`/projects/${projectId}/integrations/jira-forge/register/`);
+  const response = await fetch(url, { method: "GET", headers });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new CveFeedApiError(
+      `Permission check failed: ${response.status}`,
+      response.status,
+      body
+    );
+  }
+  return response.json();
+}
+
+/**
  * Register a webhook URL with CVEFeed.io for a project.
  * Returns { registered, created, signing_secret }.
  */
 export async function registerWebhook(apiToken, projectId, webhookUrl) {
-  const headers = {
-    Authorization: `Bearer ${apiToken}`,
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    "User-Agent": "CVEFeed-Forge/1.0",
-  };
-  const url = buildUrl(`/projects/${projectId}/integrations/webhook/register/`);
+  const headers = buildBearerHeaders(apiToken);
+  const url = buildUrl(`/projects/${projectId}/integrations/jira-forge/register/`);
   const response = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({ url: webhookUrl }),
+    body: JSON.stringify({ webhook_url: webhookUrl }),
   });
 
   if (!response.ok) {
@@ -293,9 +306,28 @@ export async function registerWebhook(apiToken, projectId, webhookUrl) {
  */
 export async function deregisterWebhook(projectId) {
   return apiRequest(
-    `/projects/${projectId}/integrations/webhook/register/`,
+    `/projects/${projectId}/integrations/jira-forge/register/`,
     {},
     { method: "DELETE" }
+  );
+}
+
+/**
+ * Sync issue creation settings to CVEFeed.io for display on the Django UI.
+ */
+export async function syncIssueConfig(projectId, issueConfig) {
+  return apiRequest(
+    `/projects/${projectId}/integrations/jira-forge/config/`,
+    {},
+    {
+      method: "PUT",
+      body: {
+        jira_project_key: issueConfig.jiraProjectKey || "",
+        issue_type_id: issueConfig.issueTypeId || "",
+        labels: issueConfig.labels || [],
+        auto_create_issues: issueConfig.autoCreateIssues || false,
+      },
+    }
   );
 }
 

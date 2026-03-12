@@ -183,6 +183,34 @@ body {
   font-size: 12px;
 }
 
+/* ── Scope Requirements ── */
+.scope-requirements {
+  margin: 12px 0 16px 20px;
+}
+
+.scope-requirements .config-table {
+  max-width: 320px;
+}
+
+.scope-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.scope-badge.write {
+  background: var(--ds-background-warning, #fff3e0);
+  color: var(--ds-text-warning, #e65100);
+}
+
+.scope-badge.read {
+  background: var(--ds-background-success, #e8f5e9);
+  color: var(--ds-text-success, #2e7d32);
+}
+
 /* ── Form ── */
 .config-form {
   display: flex;

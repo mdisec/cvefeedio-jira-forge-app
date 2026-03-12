@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { invoke, view } from "@forge/bridge";
 import "./styles.css";
 
@@ -57,7 +57,6 @@ function IssueConfigSection({ onMessage }) {
     setLoadingProjects(true);
     try {
       const result = await invoke("getJiraProjects");
-      console.log("getJiraProjects result:", JSON.stringify(result));
       if (result && result.success) {
         setJiraProjects(result.projects || []);
         if ((result.projects || []).length === 0) {
@@ -438,8 +437,6 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
 
-  const setMsg = useCallback((msg) => setMessage(msg), []);
-
   useEffect(() => {
     view.getContext().then((ctx) => {
       const moduleKey = ctx?.extension?.moduleKey || "";
@@ -719,10 +716,50 @@ function App() {
                     and open your project settings.
                   </li>
                   <li>
-                    Navigate to <strong>Settings → API Tokens</strong> and create a
-                    new token with <code>read</code> access to vulnerabilities, alerts,
-                    and subscriptions.
+                    Navigate to <strong>Settings &rarr; API Tokens</strong> and create a
+                    new token with the following scopes:
                   </li>
+                </ol>
+
+                <div className="scope-requirements">
+                  <table className="config-table">
+                    <thead>
+                      <tr>
+                        <th>Resource</th>
+                        <th>Required Scope</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><code>integrations</code></td>
+                        <td><span className="scope-badge write">write</span></td>
+                      </tr>
+                      <tr>
+                        <td><code>project</code></td>
+                        <td><span className="scope-badge read">read</span></td>
+                      </tr>
+                      <tr>
+                        <td><code>alerts</code></td>
+                        <td><span className="scope-badge read">read</span></td>
+                      </tr>
+                      <tr>
+                        <td><code>subscriptions</code></td>
+                        <td><span className="scope-badge read">read</span></td>
+                      </tr>
+                      <tr>
+                        <td><code>vulnerabilities</code></td>
+                        <td><span className="scope-badge read">read</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p className="help-text">
+                    The <code>integrations: write</code> scope is required for webhook
+                    registration and configuration sync. Other scopes enable fetching
+                    project data, alerts, and vulnerability details.
+                  </p>
+                </div>
+
+                <ol start="3">
                   <li>Copy the API token and your project ID below.</li>
                 </ol>
               </div>
@@ -776,7 +813,7 @@ function App() {
                   Configure how vulnerability alerts are created as Jira issues.
                 </p>
               </div>
-              <IssueConfigSection onMessage={setMsg} />
+              <IssueConfigSection onMessage={setMessage} />
             </>
           )}
         </>

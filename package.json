@@ -16,8 +16,9 @@
   },
   "dependencies": {
     "@forge/api": "^4.0.0",
-    "@forge/resolver": "^1.6.0",
-    "@forge/bridge": "^3.0.0"
+    "@forge/bridge": "^3.0.0",
+    "@forge/kvs": "^1.4.0",
+    "@forge/resolver": "^1.6.0"
   },
   "devDependencies": {
     "eslint": "^8.57.0"

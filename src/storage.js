@@ -1,11 +1,11 @@
 /**
  * Forge app storage utilities.
  *
- * Uses @forge/api `storage` to persist configuration (API token, project ID)
+ * Uses @forge/kvs to persist configuration (API token, project ID)
  * at the Jira site level. All values are encrypted at rest by Forge.
  */
 
-import { storage } from "@forge/api";
+import { storage } from "@forge/kvs";
 
 const STORAGE_KEYS = {
   CONFIG: "cvefeed:config",
