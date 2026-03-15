@@ -53,7 +53,7 @@ modules:
   # Full-page vulnerability browser accessible from the Apps menu.
   jira:globalPage:
     - key: cvefeed-global-page
-      title: CVEFeed.io Vulnerability Browser
+      title: CVEFeed.io - CVE Vulnerability Alerts for Jira
       icon: resource:cvefeed-icon;icon.svg
       resource: admin-page-resource
       resolver:

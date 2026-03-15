@@ -52,6 +52,21 @@ body {
   color: var(--cf-text-secondary);
 }
 
+.project-selector {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+  border: 1px solid var(--cf-border);
+  border-radius: var(--cf-radius);
+  padding: 2px 6px;
+  background: var(--cf-bg);
+  cursor: pointer;
+  outline: none;
+}
+
+.project-selector:focus {
+  border-color: var(--cf-primary);
+}
+
 /* ── Severity Grid ── */
 .severity-grid {
   display: grid;

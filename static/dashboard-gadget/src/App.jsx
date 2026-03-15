@@ -6,28 +6,42 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (projectId) => {
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke("getDashboardData");
+      const result = await invoke("getDashboardData", {
+        projectId: projectId || selectedProjectId,
+      });
       setData(result);
+      // Auto-select first project if none selected
+      if (!projectId && !selectedProjectId && result?.projects?.length > 0) {
+        setSelectedProjectId(result.projects[0].projectId);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, []);
+
+  const handleProjectChange = (e) => {
+    const pid = e.target.value;
+    setSelectedProjectId(pid);
+    loadData(pid);
+  };
 
   const handleMarkRead = async (alertId) => {
+    if (!data?.projectId) return;
     try {
-      await invoke("markAlertRead", { alertId });
-      loadData();
+      await invoke("markAlertRead", { projectId: data.projectId, alertId });
+      loadData(data.projectId);
     } catch (err) {
       // Silently handle
     }
@@ -56,21 +70,35 @@ function App() {
     return (
       <div className="gadget">
         <div className="error">{error || data.error}</div>
-        <button className="btn-retry" onClick={loadData}>
+        <button className="btn-retry" onClick={() => loadData()}>
           Retry
         </button>
       </div>
     );
   }
 
-  const { severityDistribution, alerts, totalAlerts, subscriptions, subscriptionUsage, projectName } = data;
+  const { severityDistribution, alerts, totalAlerts, subscriptions, subscriptionUsage, projectName, projects } = data;
 
   return (
     <div className="gadget">
       {/* ── Header ── */}
       <div className="gadget-header">
         <h2>CVEFeed.io</h2>
-        <span className="project-name">{projectName}</span>
+        {projects && projects.length > 1 ? (
+          <select
+            className="project-selector"
+            value={selectedProjectId || data.projectId || ""}
+            onChange={handleProjectChange}
+          >
+            {projects.map((p) => (
+              <option key={p.projectId} value={p.projectId}>
+                {p.projectName}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="project-name">{projectName}</span>
+        )}
       </div>
 
       {/* ── Severity Distribution ── */}

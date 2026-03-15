@@ -4,7 +4,7 @@ import "./styles.css";
 
 // ── Issue Configuration Sub-Component ───────────────────────
 
-function IssueConfigSection({ onMessage }) {
+function IssueConfigSection({ projectId, onMessage }) {
   const [issueConfig, setIssueConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -20,7 +20,8 @@ function IssueConfigSection({ onMessage }) {
   const [selectedProject, setSelectedProject] = useState("");
   const [selectedIssueType, setSelectedIssueType] = useState("");
   const [labelsInput, setLabelsInput] = useState("");
-  const [autoCreate, setAutoCreate] = useState(false);
+  const [autoCreate, setAutoCreate] = useState(true);
+  const [markAsReadOnSync, setMarkAsReadOnSync] = useState(true);
   const [priorityMapping, setPriorityMapping] = useState({
     critical: "Highest",
     high: "High",
@@ -32,18 +33,19 @@ function IssueConfigSection({ onMessage }) {
 
   useEffect(() => {
     loadIssueConfig();
-  }, []);
+  }, [projectId]);
 
   async function loadIssueConfig() {
     setLoading(true);
     try {
-      const result = await invoke("getIssueConfig");
+      const result = await invoke("getIssueConfig", { projectId });
       setIssueConfig(result);
       if (result.configured) {
         setSelectedProject(result.jiraProjectKey || "");
         setSelectedIssueType(result.issueTypeId || "");
         setLabelsInput((result.labels || []).join(", "));
-        setAutoCreate(result.autoCreateIssues || false);
+        setAutoCreate(result.autoCreateIssues ?? true);
+        setMarkAsReadOnSync(result.markAsReadOnSync ?? true);
         setPriorityMapping(result.priorityMapping || priorityMapping);
       }
     } catch (err) {
@@ -122,12 +124,14 @@ function IssueConfigSection({ onMessage }) {
         .filter((l) => l.length > 0);
 
       const result = await invoke("saveIssueConfig", {
+        projectId,
         jiraProjectKey: selectedProject,
         jiraProjectName: projectObj?.name || selectedProject,
         issueTypeId: selectedIssueType,
         issueTypeName: issueTypeObj?.name || selectedIssueType,
         labels,
         autoCreateIssues: autoCreate,
+        markAsReadOnSync,
         priorityMapping,
       });
 
@@ -147,7 +151,7 @@ function IssueConfigSection({ onMessage }) {
   async function handleTestIssue() {
     setCreatingTest(true);
     try {
-      const result = await invoke("createTestIssue");
+      const result = await invoke("createTestIssue", { projectId });
       if (result.success) {
         onMessage({
           type: "success",
@@ -166,12 +170,13 @@ function IssueConfigSection({ onMessage }) {
   async function handleResetIssueConfig() {
     if (!window.confirm("Reset issue creation settings?")) return;
     try {
-      await invoke("deleteIssueConfig");
+      await invoke("deleteIssueConfig", { projectId });
       setIssueConfig({ configured: false });
       setSelectedProject("");
       setSelectedIssueType("");
       setLabelsInput("");
       setAutoCreate(false);
+      setMarkAsReadOnSync(true);
       setJiraProjects([]);
       setIssueTypes([]);
       onMessage({ type: "success", text: "Issue creation settings reset." });
@@ -217,6 +222,10 @@ function IssueConfigSection({ onMessage }) {
               <th>Auto-Create</th>
               <td>{issueConfig.autoCreateIssues ? "Enabled" : "Disabled"}</td>
             </tr>
+            <tr>
+              <th>Mark as Read</th>
+              <td>{issueConfig.markAsReadOnSync !== false ? "Enabled" : "Disabled"}</td>
+            </tr>
           </tbody>
         </table>
 
@@ -260,7 +269,8 @@ function IssueConfigSection({ onMessage }) {
               // Pre-select current values
               setSelectedProject(issueConfig.jiraProjectKey);
               setLabelsInput((issueConfig.labels || []).join(", "));
-              setAutoCreate(issueConfig.autoCreateIssues || false);
+              setAutoCreate(issueConfig.autoCreateIssues ?? true);
+              setMarkAsReadOnSync(issueConfig.markAsReadOnSync ?? true);
               setPriorityMapping(issueConfig.priorityMapping || priorityMapping);
               loadIssueTypes(issueConfig.jiraProjectKey);
             }}
@@ -406,6 +416,22 @@ function IssueConfigSection({ onMessage }) {
               </span>
             </div>
 
+            {/* Step 6: Mark as read toggle */}
+            <div className="form-group">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={markAsReadOnSync}
+                  onChange={(e) => setMarkAsReadOnSync(e.target.checked)}
+                />
+                <span>Mark alerts as read on CVEFeed.io after sync</span>
+              </label>
+              <span className="help-text">
+                When enabled, alerts are marked as read on CVEFeed.io after Jira issues are created.
+                When disabled, alerts remain unread but duplicate issues will not be created.
+              </span>
+            </div>
+
             <button className="btn btn-primary" type="submit" disabled={saving}>
               {saving ? "Saving…" : "Save Issue Settings"}
             </button>
@@ -421,16 +447,24 @@ function IssueConfigSection({ onMessage }) {
 function App() {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [testing, setTesting] = useState(null); // projectId being tested
+  const [syncing, setSyncing] = useState(null); // projectId being synced
   const [syncResult, setSyncResult] = useState(null);
   const [message, setMessage] = useState(null);
   const [isGlobalPage, setIsGlobalPage] = useState(false);
 
-  // Form state
-  const [apiToken, setApiToken] = useState("");
-  const [projectId, setProjectId] = useState("");
+  // Sync preview/confirm state
+  const [syncPreview, setSyncPreview] = useState(null);
+  const [creating, setCreating] = useState(false);
+
+  // Selected project for detail view
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
+
+  // Add project form
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addingProject, setAddingProject] = useState(false);
+  const [newApiToken, setNewApiToken] = useState("");
+  const [newProjectId, setNewProjectId] = useState("");
 
   // Vulnerability browser state (for global page)
   const [vulnData, setVulnData] = useState(null);
@@ -457,19 +491,19 @@ function App() {
     }
   }
 
-  async function handleSave(e) {
+  async function handleAddProject(e) {
     e.preventDefault();
-    if (!apiToken.trim() || !projectId.trim()) {
+    if (!newApiToken.trim() || !newProjectId.trim()) {
       setMessage({ type: "error", text: "Both fields are required." });
       return;
     }
 
-    setSaving(true);
+    setAddingProject(true);
     setMessage(null);
     try {
-      const result = await invoke("saveAdminConfig", {
-        apiToken: apiToken.trim(),
-        projectId: projectId.trim(),
+      const result = await invoke("addProject", {
+        apiToken: newApiToken.trim(),
+        projectId: newProjectId.trim(),
       });
       if (result.success) {
         const syncInfo = result.sync
@@ -477,11 +511,11 @@ function App() {
           : "";
         setMessage({
           type: "success",
-          text: `Connected to "${result.projectName}" successfully.${syncInfo}`,
+          text: `Project "${result.projectName}" added successfully.${syncInfo}`,
         });
-        if (result.sync) setSyncResult(result.sync);
-        setApiToken("");
-        setProjectId("");
+        setNewApiToken("");
+        setNewProjectId("");
+        setShowAddForm(false);
         await loadConfig();
       } else {
         setMessage({ type: "error", text: result.error });
@@ -489,26 +523,27 @@ function App() {
     } catch (err) {
       setMessage({ type: "error", text: err.message });
     } finally {
-      setSaving(false);
+      setAddingProject(false);
     }
   }
 
-  async function handleDisconnect() {
-    if (!window.confirm("Disconnect CVEFeed.io from this Jira site?")) return;
+  async function handleRemoveProject(projectId, projectName) {
+    if (!window.confirm(`Remove project "${projectName}" (ID: ${projectId})? This will delete all associated configuration.`)) return;
     try {
-      await invoke("deleteAdminConfig");
-      setMessage({ type: "success", text: "Disconnected successfully." });
-      setConfig({ configured: false });
+      await invoke("removeProject", { projectId });
+      setMessage({ type: "success", text: `Project "${projectName}" removed.` });
+      if (selectedProjectId === projectId) setSelectedProjectId(null);
+      await loadConfig();
     } catch (err) {
       setMessage({ type: "error", text: err.message });
     }
   }
 
-  async function handleTest() {
-    setTesting(true);
+  async function handleTest(projectId) {
+    setTesting(projectId);
     setMessage(null);
     try {
-      const result = await invoke("testConnection");
+      const result = await invoke("testConnection", { projectId });
       if (result.success) {
         const subs = result.subscriptions;
         setMessage({
@@ -521,29 +556,101 @@ function App() {
     } catch (err) {
       setMessage({ type: "error", text: err.message });
     } finally {
-      setTesting(false);
+      setTesting(null);
     }
   }
 
-  async function handleSync() {
-    setSyncing(true);
+  async function handleSync(projectId) {
+    setSyncing(projectId);
     setMessage(null);
     setSyncResult(null);
+    setSyncPreview(null);
     try {
-      const result = await invoke("syncNow");
-      if (result.success) {
-        setSyncResult(result);
+      // Step 1: Refresh data cache
+      const syncResult = await invoke("syncNow", { projectId });
+      if (!syncResult.success) {
+        setMessage({ type: "error", text: `Sync failed: ${syncResult.error}` });
+        return;
+      }
+      setSyncResult(syncResult);
+
+      // Step 2: Preview issues to create
+      const preview = await invoke("previewSyncIssues", { projectId });
+      if (preview.success) {
+        setSyncPreview({ ...preview, projectId });
+        if (preview.toCreate === 0) {
+          setMessage({
+            type: "success",
+            text: `Synced ${syncResult.alertCount} alerts, ${syncResult.subscriptionCount} subscriptions. No new issues to create.${preview.duplicates > 0 ? ` ${preview.duplicates} alert(s) already have Jira issues.` : ""}`,
+          });
+        } else {
+          setMessage({
+            type: "success",
+            text: `Synced ${syncResult.alertCount} alerts, ${syncResult.subscriptionCount} subscriptions. ${preview.toCreate} new issue(s) ready to create — review below.`,
+          });
+        }
+      } else {
         setMessage({
           type: "success",
-          text: `Sync complete — ${result.alertCount} alerts, ${result.subscriptionCount} subscriptions fetched.`,
+          text: `Synced ${syncResult.alertCount} alerts, ${syncResult.subscriptionCount} subscriptions.${preview.error ? ` ${preview.error}` : ""}`,
         });
-      } else {
-        setMessage({ type: "error", text: `Sync failed: ${result.error}` });
       }
     } catch (err) {
       setMessage({ type: "error", text: err.message });
     } finally {
-      setSyncing(false);
+      setSyncing(null);
+    }
+  }
+
+  async function handleConfirmCreateIssues() {
+    if (!syncPreview?.projectId) return;
+    setCreating(true);
+    setMessage(null);
+
+    let totalCreated = 0;
+    let totalSkipped = 0;
+    let totalErrors = 0;
+    const allCreated = [];
+    let hasMore = true;
+    let totalProcessed = 0;
+    let total = syncPreview?.toCreate || 0;
+    let page = 1;
+
+    try {
+      while (hasMore) {
+        setMessage({
+          type: "info",
+          text: `Creating issues… ${totalCreated} created, ${totalProcessed} / ${total} processed.`,
+        });
+
+        const result = await invoke("createIssuesBatch", { projectId: syncPreview.projectId, page });
+        if (!result.success) {
+          setMessage({ type: "error", text: result.error });
+          return;
+        }
+
+        totalCreated += result.issuesCreated;
+        totalSkipped += result.issuesSkipped;
+        totalErrors += result.issueErrors;
+        allCreated.push(...result.created);
+        totalProcessed += result.processed;
+        hasMore = result.hasMore;
+        if (result.nextPage) page = result.nextPage;
+        if (result.total) total = result.total;
+      }
+
+      const createdList = allCreated.length > 0
+        ? allCreated.slice(0, 20).map((c) => c.issueKey).join(", ") + (allCreated.length > 20 ? ` and ${allCreated.length - 20} more` : "")
+        : "none";
+      setMessage({
+        type: "success",
+        text: `Done! Created ${totalCreated} issue(s): ${createdList}. Skipped ${totalSkipped} duplicate(s).${totalErrors > 0 ? ` ${totalErrors} error(s).` : ""}`,
+      });
+      setSyncPreview(null);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -593,6 +700,9 @@ function App() {
     );
   }
 
+  const projects = config?.projects || [];
+  const selectedProject = projects.find((p) => p.projectId === selectedProjectId);
+
   return (
     <div className="admin-container">
       {/* ── Header ── */}
@@ -604,7 +714,7 @@ function App() {
         </h1>
         <p className="subtitle">
           {isGlobalPage
-            ? "Search and browse vulnerabilities from your CVEFeed.io project."
+            ? "Search and browse vulnerabilities from your CVEFeed.io projects."
             : "Connect your Jira site to CVEFeed.io for vulnerability intelligence."}
         </p>
       </div>
@@ -620,207 +730,334 @@ function App() {
       )}
 
       {/* ── Admin Configuration ── */}
-      {(!isGlobalPage || !config?.configured) && (
+      {(!isGlobalPage || projects.length === 0) && (
         <>
-          {config?.configured ? (
-            <div className="config-card">
-              <div className="config-status connected">
-                <div className="status-dot green" />
-                <span>Connected to CVEFeed.io</span>
-              </div>
-              <table className="config-table">
-                <tbody>
-                  <tr>
-                    <th>Project</th>
-                    <td>{config.projectName}</td>
-                  </tr>
-                  <tr>
-                    <th>Project ID</th>
-                    <td>{config.projectId}</td>
-                  </tr>
-                  <tr>
-                    <th>Connected</th>
-                    <td>
-                      {config.configuredAt
-                        ? new Date(config.configuredAt).toLocaleString()
-                        : "N/A"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>API Token</th>
-                    <td>{config.tokenConfigured ? "••••••••••••" : "Not set"}</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <div className="config-actions">
-                <button
-                  className="btn btn-primary"
-                  onClick={handleTest}
-                  disabled={testing || syncing}
-                >
-                  {testing ? "Testing…" : "Test Connection"}
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={handleSync}
-                  disabled={syncing || testing}
-                >
-                  {syncing ? "Syncing…" : "Sync Now"}
-                </button>
-                <button className="btn btn-danger" onClick={handleDisconnect}>
-                  Disconnect
-                </button>
-              </div>
-
-              {syncResult && (
-                <div className="sync-result">
-                  <table className="config-table">
-                    <tbody>
-                      <tr>
-                        <th>Last Sync</th>
-                        <td>{new Date(syncResult.syncedAt).toLocaleString()}</td>
-                      </tr>
-                      <tr>
-                        <th>Alerts</th>
-                        <td>{syncResult.alertCount} recent alerts cached</td>
-                      </tr>
-                      <tr>
-                        <th>Subscriptions</th>
-                        <td>{syncResult.subscriptionCount} monitored products</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              )}
+          {/* ── Projects Section ── */}
+          <div className="projects-section">
+            <div className="projects-header">
+              <h2>Projects</h2>
+              <button
+                className="btn btn-primary btn-small"
+                onClick={() => setShowAddForm(!showAddForm)}
+              >
+                {showAddForm ? "Cancel" : "+ Add Project"}
+              </button>
             </div>
-          ) : (
-            <div className="config-card">
-              <div className="config-status disconnected">
-                <div className="status-dot red" />
-                <span>Not Connected</span>
+
+            {/* ── Add Project Form ── */}
+            {showAddForm && (
+              <div className="config-card add-project-card">
+                <h3>Add CVEFeed.io Project</h3>
+                <div className="setup-instructions">
+                  <ol>
+                    <li>
+                      Log in to{" "}
+                      <a
+                        href="https://cvefeed.io"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        CVEFeed.io
+                      </a>{" "}
+                      and open your project settings.
+                    </li>
+                    <li>
+                      Navigate to <strong>Settings &rarr; API Tokens</strong> and create a
+                      new token with the following scopes:
+                    </li>
+                  </ol>
+
+                  <div className="scope-requirements">
+                    <table className="config-table">
+                      <thead>
+                        <tr>
+                          <th>Resource</th>
+                          <th>Required Scope</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td><code>integrations</code></td>
+                          <td><span className="scope-badge write">write</span></td>
+                        </tr>
+                        <tr>
+                          <td><code>project</code></td>
+                          <td><span className="scope-badge read">read</span></td>
+                        </tr>
+                        <tr>
+                          <td><code>alerts</code></td>
+                          <td><span className="scope-badge read">read</span></td>
+                        </tr>
+                        <tr>
+                          <td><code>subscriptions</code></td>
+                          <td><span className="scope-badge read">read</span></td>
+                        </tr>
+                        <tr>
+                          <td><code>vulnerabilities</code></td>
+                          <td><span className="scope-badge read">read</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p className="help-text">
+                      The <code>integrations: write</code> scope is required for webhook
+                      registration and configuration sync. Other scopes enable fetching
+                      project data, alerts, and vulnerability details.
+                    </p>
+                  </div>
+
+                  <ol start="3">
+                    <li>Copy the API token and your project ID below.</li>
+                  </ol>
+                </div>
+
+                <form onSubmit={handleAddProject} className="config-form">
+                  <div className="form-group">
+                    <label htmlFor="newApiToken">API Token</label>
+                    <input
+                      id="newApiToken"
+                      type="password"
+                      value={newApiToken}
+                      onChange={(e) => setNewApiToken(e.target.value)}
+                      placeholder="cvefeed_aBcD1234_..."
+                      required
+                    />
+                    <span className="help-text">
+                      Your CVEFeed.io project API token (starts with{" "}
+                      <code>cvefeed_</code>).
+                    </span>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="newProjectId">Project ID</label>
+                    <input
+                      id="newProjectId"
+                      type="text"
+                      value={newProjectId}
+                      onChange={(e) => setNewProjectId(e.target.value)}
+                      placeholder="42"
+                      required
+                    />
+                    <span className="help-text">
+                      Your numeric project ID from CVEFeed.io (visible in project
+                      settings or URL).
+                    </span>
+                  </div>
+
+                  <button className="btn btn-primary" type="submit" disabled={addingProject}>
+                    {addingProject ? "Adding…" : "Add Project"}
+                  </button>
+                </form>
               </div>
+            )}
 
-              <div className="setup-instructions">
-                <h3>Setup Instructions</h3>
-                <ol>
-                  <li>
-                    Log in to{" "}
-                    <a
-                      href="https://cvefeed.io"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      CVEFeed.io
-                    </a>{" "}
-                    and open your project settings.
-                  </li>
-                  <li>
-                    Navigate to <strong>Settings &rarr; API Tokens</strong> and create a
-                    new token with the following scopes:
-                  </li>
-                </ol>
-
-                <div className="scope-requirements">
-                  <table className="config-table">
-                    <thead>
-                      <tr>
-                        <th>Resource</th>
-                        <th>Required Scope</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td><code>integrations</code></td>
-                        <td><span className="scope-badge write">write</span></td>
-                      </tr>
-                      <tr>
-                        <td><code>project</code></td>
-                        <td><span className="scope-badge read">read</span></td>
-                      </tr>
-                      <tr>
-                        <td><code>alerts</code></td>
-                        <td><span className="scope-badge read">read</span></td>
-                      </tr>
-                      <tr>
-                        <td><code>subscriptions</code></td>
-                        <td><span className="scope-badge read">read</span></td>
-                      </tr>
-                      <tr>
-                        <td><code>vulnerabilities</code></td>
-                        <td><span className="scope-badge read">read</span></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <p className="help-text">
-                    The <code>integrations: write</code> scope is required for webhook
-                    registration and configuration sync. Other scopes enable fetching
-                    project data, alerts, and vulnerability details.
-                  </p>
+            {/* ── Project Cards ── */}
+            {projects.length === 0 && !showAddForm ? (
+              <div className="config-card">
+                <div className="config-status disconnected">
+                  <div className="status-dot red" />
+                  <span>No Projects Connected</span>
                 </div>
-
-                <ol start="3">
-                  <li>Copy the API token and your project ID below.</li>
-                </ol>
-              </div>
-
-              <form onSubmit={handleSave} className="config-form">
-                <div className="form-group">
-                  <label htmlFor="apiToken">API Token</label>
-                  <input
-                    id="apiToken"
-                    type="password"
-                    value={apiToken}
-                    onChange={(e) => setApiToken(e.target.value)}
-                    placeholder="cvefeed_aBcD1234_..."
-                    required
-                  />
-                  <span className="help-text">
-                    Your CVEFeed.io project API token (starts with{" "}
-                    <code>cvefeed_</code>).
-                  </span>
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="projectId">Project ID</label>
-                  <input
-                    id="projectId"
-                    type="text"
-                    value={projectId}
-                    onChange={(e) => setProjectId(e.target.value)}
-                    placeholder="42"
-                    required
-                  />
-                  <span className="help-text">
-                    Your numeric project ID from CVEFeed.io (visible in project
-                    settings or URL).
-                  </span>
-                </div>
-
-                <button className="btn btn-primary" type="submit" disabled={saving}>
-                  {saving ? "Connecting…" : "Connect to CVEFeed.io"}
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* ── Issue Creation Settings (only when CVEFeed is connected) ── */}
-          {config?.configured && (
-            <>
-              <div className="section-divider">
-                <h2>Issue Creation Settings</h2>
-                <p className="subtitle">
-                  Configure how vulnerability alerts are created as Jira issues.
+                <p className="setup-description">
+                  Click "Add Project" above to connect your first CVEFeed.io project.
                 </p>
               </div>
-              <IssueConfigSection onMessage={setMessage} />
+            ) : (
+              <div className="project-list">
+                {projects.map((proj) => (
+                  <div
+                    key={proj.projectId}
+                    className={`project-card ${selectedProjectId === proj.projectId ? "selected" : ""}`}
+                    onClick={() => setSelectedProjectId(
+                      selectedProjectId === proj.projectId ? null : proj.projectId
+                    )}
+                  >
+                    <div className="project-card-header">
+                      <div className="project-card-title">
+                        <strong>{proj.projectName}</strong>
+                        <span className="project-id">ID: {proj.projectId}</span>
+                      </div>
+                      <div className="project-card-status">
+                        {proj.issueConfigured ? (
+                          <span className="status-badge configured">
+                            {proj.jiraProjectKey} ({proj.issueTypeName})
+                          </span>
+                        ) : (
+                          <span className="status-badge not-configured">Not configured</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="project-card-meta">
+                      {proj.issueConfigured && (
+                        <span className="meta-item">
+                          Auto-create: {proj.autoCreateIssues ? "ON" : "OFF"}
+                        </span>
+                      )}
+                    </div>
+                    <div className="project-card-actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        onClick={() => setSelectedProjectId(proj.projectId)}
+                      >
+                        Configure
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        onClick={() => handleSync(proj.projectId)}
+                        disabled={syncing === proj.projectId}
+                      >
+                        {syncing === proj.projectId ? "Syncing…" : "Sync"}
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        onClick={() => handleTest(proj.projectId)}
+                        disabled={testing === proj.projectId}
+                      >
+                        {testing === proj.projectId ? "Testing…" : "Test"}
+                      </button>
+                      <button
+                        className="btn btn-danger btn-small"
+                        onClick={() => handleRemoveProject(proj.projectId, proj.projectName)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Selected Project Detail ── */}
+          {selectedProject && (
+            <>
+              <div className="section-divider">
+                <h2>Issue Creation Settings — {selectedProject.projectName}</h2>
+                <p className="subtitle">
+                  Configure how vulnerability alerts for this project are created as Jira issues.
+                </p>
+              </div>
+              <IssueConfigSection
+                projectId={selectedProject.projectId}
+                onMessage={setMessage}
+              />
+
+              {/* ── Sync & Issue Creation Actions ── */}
+              <div className="section-divider">
+                <h2>Sync & Issue Creation — {selectedProject.projectName}</h2>
+                <p className="subtitle">
+                  Refresh vulnerability data from CVEFeed.io and create Jira issues from unread alerts.
+                </p>
+              </div>
+              <div className="config-card">
+                <div className="config-actions">
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => handleSync(selectedProject.projectId)}
+                    disabled={syncing === selectedProject.projectId}
+                  >
+                    {syncing === selectedProject.projectId ? "Syncing…" : "Sync Now"}
+                  </button>
+                </div>
+
+                {syncResult && (
+                  <div className="sync-result">
+                    <table className="config-table">
+                      <tbody>
+                        <tr>
+                          <th>Last Sync</th>
+                          <td>{new Date(syncResult.syncedAt).toLocaleString()}</td>
+                        </tr>
+                        <tr>
+                          <th>Alerts</th>
+                          <td>{syncResult.alertCount} recent alerts cached</td>
+                        </tr>
+                        <tr>
+                          <th>Subscriptions</th>
+                          <td>{syncResult.subscriptionCount} monitored products</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* ── Issue Creation Preview ── */}
+                {syncPreview && syncPreview.toCreate > 0 && (
+                  <div className="sync-preview">
+                    <h3>Issue Creation Preview</h3>
+                    <p className="preview-summary">
+                      <strong>{syncPreview.toCreate}</strong> new issue(s) will be created in{" "}
+                      <strong>{syncPreview.projectKey}</strong>.
+                      {syncPreview.duplicates > 0 && (
+                        <> {syncPreview.duplicates} alert(s) already have Jira issues and will be skipped.</>
+                      )}
+                    </p>
+                    {syncPreview.markAsReadOnSync === false && (
+                      <p className="help-text">
+                        "Mark as Read" is disabled — alerts will remain unread on CVEFeed.io.
+                        Some alerts may be skipped if matching Jira issues already exist.
+                      </p>
+                    )}
+
+                    <table className="config-table preview-table">
+                      <thead>
+                        <tr>
+                          <th>CVE ID</th>
+                          <th>Severity</th>
+                          <th>Title</th>
+                          <th>Product</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {syncPreview.preview.map((item) => (
+                          <tr key={item.cveId}>
+                            <td>
+                              <a
+                                href={`https://cvefeed.io/vuln/detail/${item.cveId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="cve-link"
+                              >
+                                {item.cveId}
+                              </a>
+                            </td>
+                            <td>
+                              <span className={`severity-tag ${(item.severity || "").toLowerCase()}`}>
+                                {item.severity}
+                              </span>
+                            </td>
+                            <td className="title-cell">{item.title}</td>
+                            <td>{item.product}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    <div className="preview-actions">
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleConfirmCreateIssues}
+                        disabled={creating}
+                      >
+                        {creating ? "Creating Issues…" : `Confirm — Create ${syncPreview.toCreate} Issue(s)`}
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => setSyncPreview(null)}
+                        disabled={creating}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
         </>
       )}
 
       {/* ── Global Page: Vulnerability Browser ── */}
-      {isGlobalPage && config?.configured && (
+      {isGlobalPage && projects.length > 0 && (
         <div className="vuln-browser">
           <div className="browser-actions">
             <div className="search-bar">

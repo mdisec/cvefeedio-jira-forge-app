@@ -2,12 +2,11 @@
  * CVEFeed.io API client for Forge backend.
  *
  * Uses @forge/api `fetch` (the only HTTP client allowed in Forge runtime)
- * to call CVEFeed.io endpoints. All methods require a valid API token
- * stored in Forge app storage.
+ * to call CVEFeed.io endpoints. All methods require an explicit API token
+ * parameter (per-project).
  */
 
 import { fetch } from "@forge/api";
-import { getConfig } from "./storage";
 
 const CVEFEED_BASE_URL = "https://cvefeed.io";
 const API_PREFIX = "/api";
@@ -33,14 +32,6 @@ function buildBearerHeaders(token) {
   };
 }
 
-async function getApiHeaders() {
-  const config = await getConfig();
-  if (!config || !config.apiToken) {
-    throw new CveFeedApiError("CVEFeed.io API token not configured.", 401);
-  }
-  return buildBearerHeaders(config.apiToken);
-}
-
 function buildUrl(path, params = {}) {
   const url = new URL(`${API_PREFIX}${path}`, CVEFEED_BASE_URL);
   for (const [key, value] of Object.entries(params)) {
@@ -51,8 +42,8 @@ function buildUrl(path, params = {}) {
   return url.toString();
 }
 
-async function apiRequest(path, params = {}, options = {}) {
-  const headers = await getApiHeaders();
+async function apiRequest(apiToken, path, params = {}, options = {}) {
+  const headers = buildBearerHeaders(apiToken);
   const url = buildUrl(path, params);
 
   const response = await fetch(url, {
@@ -77,8 +68,8 @@ async function apiRequest(path, params = {}, options = {}) {
  * Fetch all pages from a paginated DRF endpoint.
  * Returns the full array of results, following `next` URLs until exhausted.
  */
-async function apiRequestAllPages(path, params = {}) {
-  const headers = await getApiHeaders();
+async function apiRequestAllPages(apiToken, path, params = {}) {
+  const headers = buildBearerHeaders(apiToken);
   let url = buildUrl(path, { page_size: 100, ...params });
   const allResults = [];
 
@@ -106,8 +97,8 @@ async function apiRequestAllPages(path, params = {}) {
 /**
  * Search vulnerabilities by keyword (CVE ID, product name, description).
  */
-export async function searchVulnerabilities(query, page = 1) {
-  return apiRequest("/vulnerability/quick-search", {
+export async function searchVulnerabilities(apiToken, query, page = 1) {
+  return apiRequest(apiToken, "/vulnerability/quick-search", {
     q: query,
     page,
   });
@@ -116,8 +107,8 @@ export async function searchVulnerabilities(query, page = 1) {
 /**
  * Advanced vulnerability search with filters.
  */
-export async function advancedSearchVulnerabilities(filters = {}) {
-  return apiRequest("/vulnerability/advanced-search", {
+export async function advancedSearchVulnerabilities(apiToken, filters = {}) {
+  return apiRequest(apiToken, "/vulnerability/advanced-search", {
     page_size: DEFAULT_PAGE_SIZE,
     ...filters,
   });
@@ -126,22 +117,22 @@ export async function advancedSearchVulnerabilities(filters = {}) {
 /**
  * Get a single vulnerability by CVE ID.
  */
-export async function getVulnerability(cveId) {
-  return apiRequest(`/vulnerability/${cveId}/`);
+export async function getVulnerability(apiToken, cveId) {
+  return apiRequest(apiToken, `/vulnerability/${cveId}/`);
 }
 
 /**
  * Get the change history for a CVE.
  */
-export async function getVulnerabilityHistory(cveId) {
-  return apiRequest(`/vulnerability/${cveId}/change-history/`);
+export async function getVulnerabilityHistory(apiToken, cveId) {
+  return apiRequest(apiToken, `/vulnerability/${cveId}/change-history/`);
 }
 
 /**
  * List vulnerabilities for a CVEFeed project (project-scoped).
  */
-export async function getProjectVulnerabilities(projectId, params = {}) {
-  return apiRequest(`/projects/${projectId}/vulns/`, {
+export async function getProjectVulnerabilities(apiToken, projectId, params = {}) {
+  return apiRequest(apiToken, `/projects/${projectId}/vulns/`, {
     page_size: DEFAULT_PAGE_SIZE,
     ...params,
   });
@@ -150,8 +141,8 @@ export async function getProjectVulnerabilities(projectId, params = {}) {
 /**
  * List alerts for a CVEFeed project.
  */
-export async function getProjectAlerts(projectId, params = {}) {
-  return apiRequest(`/projects/${projectId}/alerts/`, {
+export async function getProjectAlerts(apiToken, projectId, params = {}) {
+  return apiRequest(apiToken, `/projects/${projectId}/alerts/`, {
     page_size: DEFAULT_PAGE_SIZE,
     ...params,
   });
@@ -160,29 +151,29 @@ export async function getProjectAlerts(projectId, params = {}) {
 /**
  * Fetch ALL alerts for a project, following pagination.
  */
-export async function getAllProjectAlerts(projectId, params = {}) {
-  return apiRequestAllPages(`/projects/${projectId}/alerts/`, params);
+export async function getAllProjectAlerts(apiToken, projectId, params = {}) {
+  return apiRequestAllPages(apiToken, `/projects/${projectId}/alerts/`, params);
 }
 
 /**
  * Mark an alert as read.
  */
-export async function markAlertRead(projectId, alertId) {
-  return apiRequest(`/projects/${projectId}/alerts/${alertId}/mark-as-read/`, {}, { method: "POST" });
+export async function markAlertRead(apiToken, projectId, alertId) {
+  return apiRequest(apiToken, `/projects/${projectId}/alerts/${alertId}/mark-as-read/`, {}, { method: "POST" });
 }
 
 /**
  * List product subscriptions for a project.
  */
-export async function getProductSubscriptions(projectId) {
-  return apiRequest(`/projects/${projectId}/products/`);
+export async function getProductSubscriptions(apiToken, projectId) {
+  return apiRequest(apiToken, `/projects/${projectId}/products/`);
 }
 
 /**
  * Search products to subscribe.
  */
-export async function searchProducts(projectId, keyword) {
-  return apiRequest(`/projects/${projectId}/products/search`, {
+export async function searchProducts(apiToken, projectId, keyword) {
+  return apiRequest(apiToken, `/projects/${projectId}/products/search`, {
     keyword,
   });
 }
@@ -190,8 +181,8 @@ export async function searchProducts(projectId, keyword) {
 /**
  * Get project details (subscription limits, etc.).
  */
-export async function getProjectDetails(projectId) {
-  return apiRequest(`/projects/${projectId}/`);
+export async function getProjectDetails(apiToken, projectId) {
+  return apiRequest(apiToken, `/projects/${projectId}/`);
 }
 
 /**
@@ -304,8 +295,9 @@ export async function registerWebhook(apiToken, projectId, webhookUrl) {
 /**
  * Deregister the webhook URL from CVEFeed.io.
  */
-export async function deregisterWebhook(projectId) {
+export async function deregisterWebhook(apiToken, projectId) {
   return apiRequest(
+    apiToken,
     `/projects/${projectId}/integrations/jira-forge/register/`,
     {},
     { method: "DELETE" }
@@ -315,8 +307,9 @@ export async function deregisterWebhook(projectId) {
 /**
  * Sync issue creation settings to CVEFeed.io for display on the Django UI.
  */
-export async function syncIssueConfig(projectId, issueConfig) {
+export async function syncIssueConfig(apiToken, projectId, issueConfig) {
   return apiRequest(
+    apiToken,
     `/projects/${projectId}/integrations/jira-forge/config/`,
     {},
     {
