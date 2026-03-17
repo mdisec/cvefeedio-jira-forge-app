@@ -70,6 +70,28 @@ function checkLicense(context) {
 }
 
 /**
+ * Check whether the calling user has CREATE_ISSUES permission in the given
+ * Jira project.  Uses asUser() so the check runs against the invoking
+ * user's actual permissions rather than the app's elevated identity.
+ *
+ * Required by Atlassian FSRT authorization policy — resolvers that perform
+ * write operations via asApp() must first verify the caller is authorized.
+ * @see https://developer.atlassian.com/platform/forge/runtime-reference/authorize-api/
+ */
+async function checkUserCanCreateIssues(projectKey) {
+  try {
+    const response = await asUser().requestJira(
+      route`/rest/api/3/mypermissions?projectKey=${projectKey}&permissions=CREATE_ISSUES`
+    );
+    if (!response.ok) return false;
+    const data = await response.json();
+    return data.permissions?.CREATE_ISSUES?.havePermission === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Helper: get the first available project token for read-only API calls
  * (vulnerability search, CVE detail) that don't need a specific project context.
  */
@@ -876,7 +898,7 @@ resolver.define("previewSyncIssues", async ({ payload }) => {
  */
 const BATCH_SIZE = 10;
 
-resolver.define("createIssuesBatch", async ({ payload }) => {
+resolver.define("createIssuesBatch", async ({ payload, context }) => {
   const { projectId } = payload || {};
   if (!projectId) return { success: false, error: "projectId is required." };
 
@@ -889,6 +911,16 @@ resolver.define("createIssuesBatch", async ({ payload }) => {
   const issueConfig = await getProjectIssueConfig(projectId);
   if (!issueConfig || !issueConfig.jiraProjectKey || !issueConfig.issueTypeId) {
     return { success: false, error: "Issue creation is not configured." };
+  }
+
+  // Verify the calling user has CREATE_ISSUES permission in the target
+  // Jira project before proceeding with asApp() calls (FSRT requirement).
+  const canCreate = await checkUserCanCreateIssues(issueConfig.jiraProjectKey);
+  if (!canCreate) {
+    return {
+      success: false,
+      error: "You do not have permission to create issues in this project.",
+    };
   }
 
   try {
