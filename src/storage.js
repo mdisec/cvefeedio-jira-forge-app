@@ -256,6 +256,6 @@ export async function migrateIfNeeded() {
     }
   }
 
-  console.log(`Migration complete: single project ${projectId} migrated to multi-project format.`);
+  console.log("Migration complete: single project migrated to multi-project format.");
   return true;
 }

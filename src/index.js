@@ -181,7 +181,7 @@ resolver.define("getIssueVulnerabilities", async ({ payload, context }) => {
       searchMode: "cve",
     };
   } catch (err) {
-    console.error("Error fetching issue vulnerabilities:", err);
+    console.error("Error fetching issue vulnerabilities:", err.message);
     return {
       configured: true,
       vulnerabilities: [],
@@ -357,7 +357,7 @@ resolver.define("getDashboardData", async ({ payload, context }) => {
       })),
     };
   } catch (err) {
-    console.error("Dashboard data error:", err);
+    console.error("Dashboard data error:", err.message);
     return { configured: true, error: err.message };
   }
 });
@@ -636,7 +636,7 @@ resolver.define("getJiraProjects", async () => {
 
     return { success: true, projects };
   } catch (err) {
-    console.error("getJiraProjects error:", err);
+    console.error("getJiraProjects error:", err.message);
     return { success: false, error: err.message || String(err) };
   }
 });
@@ -665,7 +665,7 @@ resolver.define("getJiraIssueTypes", async ({ payload }) => {
       }));
     return { success: true, issueTypes };
   } catch (err) {
-    console.error("getJiraIssueTypes error:", err);
+    console.error("getJiraIssueTypes error:", err.message);
     return { success: false, error: err.message || String(err) };
   }
 });
@@ -1131,7 +1131,10 @@ export async function incomingWebhookHandler(request) {
   const cacheKey = `alert:${cveId}`;
   await setCached(String(projectId), cacheKey, payload);
 
-  // Auto-create Jira issue if enabled — use per-project issue config
+  // Auto-create Jira issue if enabled — use per-project issue config.
+  // Web triggers have no user context, so asApp() is used. Authorization is
+  // gated by: (1) the admin explicitly enabling autoCreateIssues via the
+  // admin page, and (2) the webhook signing secret verification above.
   let issueCreated = null;
   const issueConfig = await getProjectIssueConfig(String(projectId));
   if (issueConfig && issueConfig.autoCreateIssues && issueConfig.jiraProjectKey && issueConfig.issueTypeId) {
@@ -1142,6 +1145,19 @@ export async function incomingWebhookHandler(request) {
       } else {
         const result = await createJiraIssueFromAlert(payload, issueConfig, project.projectSlug || "");
         issueCreated = result;
+      }
+
+      // Mark alert as read on CVEFeed.io after successful issue creation or duplicate detection
+      const alertId = payload.id;
+      if (alertId) {
+        try {
+          const apiToken = await getProjectToken(String(projectId));
+          if (apiToken) {
+            await markAlertRead(apiToken, projectId, alertId);
+          }
+        } catch (markErr) {
+          console.error(`Failed to mark alert ${alertId} as read after webhook issue creation:`, markErr.message);
+        }
       }
     } catch (err) {
       console.error("Failed to create Jira issue:", err.message);
@@ -1165,7 +1181,9 @@ export async function incomingWebhookHandler(request) {
  */
 async function findExistingIssue(cveId, projectKey) {
   try {
-    const jql = `project = "${projectKey}" AND summary ~ "${cveId}" ORDER BY created DESC`;
+    const sanitizedProjectKey = projectKey.replace(/[^a-zA-Z0-9_]/g, "");
+    const sanitizedCveId = cveId.replace(/[^a-zA-Z0-9\-]/g, "");
+    const jql = `project = "${sanitizedProjectKey}" AND summary ~ "${sanitizedCveId}" ORDER BY created DESC`;
     const response = await asApp().requestJira(
       route`/rest/api/3/search?jql=${jql}&maxResults=${1}&fields=${"key"}`
     );

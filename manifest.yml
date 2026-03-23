@@ -119,7 +119,6 @@ permissions:
     - storage:app
     - read:jira-work
     - write:jira-work
-    - read:jira-user
   external:
     fetch:
       backend:
